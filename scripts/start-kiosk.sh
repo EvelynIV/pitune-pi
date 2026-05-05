@@ -41,30 +41,49 @@ if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
   exit 1
 fi
 
-CHROME_BIN="${CHROME_BIN:-}"
-if [ -z "$CHROME_BIN" ]; then
-  CHROME_BIN="$(command -v chromium-browser || command -v chromium || command -v google-chrome || true)"
+BROWSER_BIN="${CHROME_BIN:-${BROWSER_BIN:-}}"
+if [ -z "$BROWSER_BIN" ]; then
+  BROWSER_BIN="$(
+    command -v chromium-browser ||
+    command -v chromium ||
+    command -v google-chrome ||
+    command -v google-chrome-stable ||
+    command -v firefox-esr ||
+    command -v firefox ||
+    command -v x-www-browser ||
+    true
+  )"
 fi
 
-if [ -z "$CHROME_BIN" ]; then
-  echo "Chromium or Chrome was not found. Install chromium-browser or set CHROME_BIN." >&2
+if [ -z "$BROWSER_BIN" ]; then
+  echo "No supported browser was found. Install Chromium or Firefox, or set BROWSER_BIN/CHROME_BIN." >&2
   exit 1
 fi
 
-"$CHROME_BIN" \
-  --app="$APP_URL" \
-  --kiosk \
-  --start-fullscreen \
-  --window-size="${KIOSK_WIDTH},${KIOSK_HEIGHT}" \
-  --force-device-scale-factor=1 \
-  --user-data-dir="$CHROME_PROFILE" \
-  --ash-hide-cursor \
-  --disable-gpu \
-  --no-first-run \
-  --disable-infobars \
-  --disable-session-crashed-bubble \
-  --class="$WINDOW_TITLE" \
-  >/tmp/pitune-chromium.log 2>&1 &
+BROWSER_NAME="$(basename "$BROWSER_BIN")"
+
+if [[ "$BROWSER_NAME" == firefox* ]] || "$BROWSER_BIN" --version 2>/dev/null | grep -qi firefox; then
+  "$BROWSER_BIN" \
+    --kiosk \
+    --new-window \
+    "$APP_URL" \
+    >/tmp/pitune-browser.log 2>&1 &
+else
+  "$BROWSER_BIN" \
+    --app="$APP_URL" \
+    --kiosk \
+    --start-fullscreen \
+    --window-size="${KIOSK_WIDTH},${KIOSK_HEIGHT}" \
+    --force-device-scale-factor=1 \
+    --user-data-dir="$CHROME_PROFILE" \
+    --ash-hide-cursor \
+    --disable-gpu \
+    --no-first-run \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --class="$WINDOW_TITLE" \
+    >/tmp/pitune-browser.log 2>&1 &
+fi
 CHROME_PID=$!
 
 if command -v wmctrl >/dev/null 2>&1; then
