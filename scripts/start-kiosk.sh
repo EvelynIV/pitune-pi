@@ -58,6 +58,7 @@ fi
   --window-size="${KIOSK_WIDTH},${KIOSK_HEIGHT}" \
   --force-device-scale-factor=1 \
   --user-data-dir="$CHROME_PROFILE" \
+  --ash-hide-cursor \
   --disable-gpu \
   --no-first-run \
   --disable-infobars \

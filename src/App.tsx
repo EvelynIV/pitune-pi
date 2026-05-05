@@ -195,8 +195,6 @@ function App() {
       <section className="workspace">
         {activePage === 'gain' && (
           <GainPage
-            command={command}
-            error={error}
             sendSettings={sendSettings}
             setSettings={setSettings}
             settings={settings}
@@ -242,22 +240,18 @@ function App() {
 }
 
 function GainPage({
-  command,
-  error,
   sendSettings,
   setSettings,
   settings,
   updateNumber,
 }: {
-  command: string
-  error: number
   sendSettings: () => void
   setSettings: Dispatch<SetStateAction<PidSettings>>
   settings: PidSettings
   updateNumber: (key: keyof PidSettings, value: number) => void
 }) {
   return (
-    <div className="page-stack">
+    <div className="page-stack gain-page">
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -319,15 +313,6 @@ function GainPage({
             }
           />
         </div>
-        <div className="metric-pair">
-          <Metric label="当前误差" value={error.toFixed(1)} />
-          <Metric label="设定值" value={settings.setpoint.toFixed(1)} />
-        </div>
-      </section>
-
-      <section className="panel command-panel">
-        <p className="eyebrow">Serial Command</p>
-        <code>{command}</code>
       </section>
     </div>
   )
@@ -347,7 +332,7 @@ function TargetPage({
   updateNumber: (key: keyof PidSettings, value: number) => void
 }) {
   return (
-    <div className="page-stack">
+    <div className="page-stack target-page">
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -426,7 +411,7 @@ function MonitorPage({
   const setpointY = 220 - (settings.setpoint / 100) * 220
 
   return (
-    <div className="page-stack">
+    <div className="page-stack monitor-page">
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -469,7 +454,7 @@ function MonitorPage({
             </tr>
           </thead>
           <tbody>
-            {telemetry.map((point) => (
+            {telemetry.slice(-4).map((point) => (
               <tr key={point.time}>
                 <td>{point.time}</td>
                 <td>{point.pv.toFixed(1)}</td>
@@ -506,7 +491,7 @@ function SerialPage({
   }
 
   return (
-    <div className="page-stack">
+    <div className="page-stack serial-page">
       <section className="panel connection-panel">
         <div className="panel-head">
           <div>
@@ -556,7 +541,7 @@ function SerialPage({
           </button>
         </div>
         <ol>
-          {log.map((line, index) => (
+          {log.slice(0, 4).map((line, index) => (
             <li key={`${line}-${index}`}>{line}</li>
           ))}
         </ol>
@@ -575,7 +560,7 @@ function ProfilesPage({
   settings: PidSettings
 }) {
   return (
-    <div className="page-stack">
+    <div className="page-stack profiles-page">
       <section className="panel profile-summary">
         <p className="eyebrow">Active Profile</p>
         <h2>当前参数快照</h2>
@@ -593,7 +578,6 @@ function ProfilesPage({
             <div>
               <p className="eyebrow">Preset</p>
               <h2>{profile.name}</h2>
-              <p>{profile.note}</p>
             </div>
             <dl>
               <div>
@@ -638,10 +622,7 @@ function PidSlider({
 
   return (
     <label className="slider-control">
-      <span>
-        {label}
-        <strong>{Number.isInteger(step) ? value.toFixed(0) : value.toFixed(2)}</strong>
-      </span>
+      <span className="slider-label">{label}</span>
       <input
         max={max}
         min={min}
@@ -651,6 +632,7 @@ function PidSlider({
         type="range"
         value={value}
       />
+      <span className="slider-value">{Number.isInteger(step) ? value.toFixed(0) : value.toFixed(2)}</span>
     </label>
   )
 }
