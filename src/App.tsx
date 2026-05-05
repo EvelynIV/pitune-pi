@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 import './App.css'
 
-type PageId = 'gain' | 'target' | 'monitor' | 'serial' | 'profiles'
+type PageId = 'gain' | 'target' | 'monitor' | 'serial'
 type Direction = 'Forward' | 'Reverse'
 type Mode = 'Manual' | 'Auto'
 
@@ -24,12 +24,6 @@ type TelemetryPoint = {
   output: number
 }
 
-type Profile = {
-  name: string
-  note: string
-  settings: PidSettings
-}
-
 const initialSettings: PidSettings = {
   kp: 1.6,
   ki: 0.32,
@@ -47,45 +41,6 @@ const tabs: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'target', label: '目标', icon: 'T' },
   { id: 'monitor', label: '监控', icon: 'M' },
   { id: 'serial', label: '串口', icon: 'S' },
-  { id: 'profiles', label: '方案', icon: 'C' },
-]
-
-const profiles: Profile[] = [
-  {
-    name: '温控稳定',
-    note: '慢响应系统，输出更平滑',
-    settings: {
-      ...initialSettings,
-      kp: 1.2,
-      ki: 0.18,
-      kd: 0.1,
-      sampleTime: 200,
-    },
-  },
-  {
-    name: '电机速度',
-    note: '响应更快，允许轻微超调',
-    settings: {
-      ...initialSettings,
-      kp: 2.4,
-      ki: 0.48,
-      kd: 0.04,
-      setpoint: 80,
-      sampleTime: 50,
-    },
-  },
-  {
-    name: '液位保持',
-    note: '积分偏弱，避免长周期振荡',
-    settings: {
-      ...initialSettings,
-      kp: 0.9,
-      ki: 0.12,
-      kd: 0.16,
-      setpoint: 42,
-      sampleTime: 150,
-    },
-  },
 ]
 
 const telemetry: TelemetryPoint[] = [
@@ -157,11 +112,6 @@ function App() {
     pushLog(`TX ${command}`)
   }
 
-  const applyProfile = (profile: Profile) => {
-    setSettings(profile.settings)
-    pushLog(`载入方案 ${profile.name}`)
-  }
-
   return (
     <main className="kiosk-shell">
       <header className="topbar">
@@ -227,13 +177,7 @@ function App() {
             setConnected={setConnected}
           />
         )}
-        {activePage === 'profiles' && (
-          <ProfilesPage
-            applyProfile={applyProfile}
-            profiles={profiles}
-            settings={settings}
-          />
-        )}
+
       </section>
     </main>
   )
@@ -550,58 +494,6 @@ function SerialPage({
   )
 }
 
-function ProfilesPage({
-  applyProfile,
-  profiles,
-  settings,
-}: {
-  applyProfile: (profile: Profile) => void
-  profiles: Profile[]
-  settings: PidSettings
-}) {
-  return (
-    <div className="page-stack profiles-page">
-      <section className="panel profile-summary">
-        <p className="eyebrow">Active Profile</p>
-        <h2>当前参数快照</h2>
-        <div className="profile-values">
-          <Metric label="Kp" value={settings.kp.toFixed(2)} />
-          <Metric label="Ki" value={settings.ki.toFixed(2)} />
-          <Metric label="Kd" value={settings.kd.toFixed(2)} />
-          <Metric label="SP" value={settings.setpoint.toFixed(1)} />
-        </div>
-      </section>
-
-      <section className="profile-list">
-        {profiles.map((profile) => (
-          <article className="profile-card" key={profile.name}>
-            <div>
-              <p className="eyebrow">Preset</p>
-              <h2>{profile.name}</h2>
-            </div>
-            <dl>
-              <div>
-                <dt>Kp</dt>
-                <dd>{profile.settings.kp.toFixed(2)}</dd>
-              </div>
-              <div>
-                <dt>Ki</dt>
-                <dd>{profile.settings.ki.toFixed(2)}</dd>
-              </div>
-              <div>
-                <dt>Kd</dt>
-                <dd>{profile.settings.kd.toFixed(2)}</dd>
-              </div>
-            </dl>
-            <button className="secondary-action" onClick={() => applyProfile(profile)} type="button">
-              载入
-            </button>
-          </article>
-        ))}
-      </section>
-    </div>
-  )
-}
 
 function PidSlider({
   label,

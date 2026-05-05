@@ -142,7 +142,7 @@ button {
 }
 
 .gain-page {
-  grid-template-rows: 222px 1fr;
+  grid-template-rows: auto 1fr;
 }
 
 .target-page {
@@ -155,10 +155,6 @@ button {
 
 .serial-page {
   grid-template-rows: 148px 68px 1fr;
-}
-
-.profiles-page {
-  grid-template-rows: 132px 1fr;
 }
 
 .panel,
@@ -186,8 +182,9 @@ button {
 }
 
 .slider-control {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 5px 0;
   border-top: 1px solid var(--border);
 }
@@ -196,21 +193,21 @@ button {
   border-top: 0;
 }
 
-.slider-control span {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+.slider-control .slider-label {
+  flex-shrink: 0;
   color: var(--text-h);
   font-size: 13px;
   font-weight: 700;
+  min-width: 64px;
 }
 
-.slider-control strong {
+.slider-control .slider-value {
+  flex-shrink: 0;
   min-width: 56px;
   font-family: var(--mono);
   font-size: 15px;
   text-align: right;
+  color: var(--text-h);
 }
 
 .slider-control input[type='range'] {
