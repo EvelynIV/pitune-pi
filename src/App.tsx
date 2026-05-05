@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 import './App.css'
 
@@ -22,6 +22,29 @@ type TelemetryPoint = {
   time: string
   pv: number
   output: number
+}
+
+type SerialPortInfo = {
+  usbProductId?: number
+  usbVendorId?: number
+}
+
+type SerialPort = {
+  close: () => Promise<void>
+  getInfo?: () => SerialPortInfo
+  open: (options: { baudRate: number }) => Promise<void>
+  readable: ReadableStream<Uint8Array> | null
+  writable: WritableStream<Uint8Array> | null
+}
+
+type SerialApi = {
+  requestPort: () => Promise<SerialPort>
+}
+
+declare global {
+  interface Navigator {
+    serial?: SerialApi
+  }
 }
 
 const initialSettings: PidSettings = {
@@ -71,6 +94,18 @@ function formatCommand(settings: PidSettings) {
   ].join(';')
 }
 
+function formatSerialPort(port: SerialPort) {
+  const info = port.getInfo?.()
+
+  if (!info?.usbVendorId && !info?.usbProductId) {
+    return '已授权串口'
+  }
+
+  const vendor = info.usbVendorId?.toString(16).padStart(4, '0') ?? '----'
+  const product = info.usbProductId?.toString(16).padStart(4, '0') ?? '----'
+  return `USB ${vendor}:${product}`
+}
+
 function buildPath(values: number[], width: number, height: number) {
   const max = 100
   const min = 0
@@ -85,12 +120,17 @@ function buildPath(values: number[], width: number, height: number) {
 
 function App() {
   const [activePage, setActivePage] = useState<PageId>('gain')
+  const [baudRate, setBaudRate] = useState(115200)
   const [settings, setSettings] = useState<PidSettings>(initialSettings)
   const [connected, setConnected] = useState(false)
+  const [portLabel, setPortLabel] = useState('未选择')
   const [log, setLog] = useState<string[]>([
     '系统就绪，等待串口连接',
     `预览命令 ${formatCommand(initialSettings)}`,
   ])
+  const portRef = useRef<SerialPort | null>(null)
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
+  const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null)
 
   const command = useMemo(() => formatCommand(settings), [settings])
   const latest = telemetry[telemetry.length - 1]
@@ -108,8 +148,113 @@ function App() {
     setLog((current) => [line, ...current].slice(0, 8))
   }
 
-  const sendSettings = () => {
-    pushLog(`TX ${command}`)
+  const disconnectSerial = async () => {
+    const reader = readerRef.current
+    const writer = writerRef.current
+    const port = portRef.current
+
+    readerRef.current = null
+    writerRef.current = null
+    portRef.current = null
+
+    try {
+      await reader?.cancel()
+    } catch (error) {
+      pushLog(`RX 关闭失败 ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    try {
+      writer?.releaseLock()
+      await port?.close()
+      pushLog('串口已断开')
+    } catch (error) {
+      pushLog(`断开失败 ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setConnected(false)
+      setPortLabel('未选择')
+    }
+  }
+
+  const startReading = async (port: SerialPort) => {
+    if (!port.readable) {
+      return
+    }
+
+    const decoder = new TextDecoder()
+    const reader = port.readable.getReader()
+    readerRef.current = reader
+
+    try {
+      while (readerRef.current === reader) {
+        const { done, value } = await reader.read()
+
+        if (done) {
+          break
+        }
+
+        if (value?.length) {
+          pushLog(`RX ${decoder.decode(value).trimEnd()}`)
+        }
+      }
+    } catch (error) {
+      if (readerRef.current === reader) {
+        pushLog(`RX 失败 ${error instanceof Error ? error.message : String(error)}`)
+      }
+    } finally {
+      if (readerRef.current === reader) {
+        readerRef.current = null
+      }
+      reader.releaseLock()
+    }
+  }
+
+  const connectSerial = async () => {
+    if (connected) {
+      await disconnectSerial()
+      return
+    }
+
+    if (!navigator.serial) {
+      pushLog('连接失败：当前浏览器不支持 Web Serial')
+      return
+    }
+
+    try {
+      const port = await navigator.serial.requestPort()
+      await port.open({ baudRate })
+
+      if (!port.writable) {
+        await port.close()
+        pushLog('连接失败：串口不可写')
+        return
+      }
+
+      portRef.current = port
+      writerRef.current = port.writable.getWriter()
+      setConnected(true)
+      setPortLabel(formatSerialPort(port))
+      pushLog(`串口已连接 ${formatSerialPort(port)} @ ${baudRate}`)
+      void startReading(port)
+    } catch (error) {
+      pushLog(`连接失败 ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const sendSettings = async () => {
+    const writer = writerRef.current
+
+    if (!connected || !writer) {
+      pushLog('发送失败：未连接串口')
+      return
+    }
+
+    try {
+      await writer.write(new TextEncoder().encode(`${command}\n`))
+      pushLog(`TX ${command}`)
+    } catch (error) {
+      pushLog(`TX 失败 ${error instanceof Error ? error.message : String(error)}`)
+      setConnected(false)
+    }
   }
 
   return (
@@ -170,11 +315,14 @@ function App() {
         {activePage === 'serial' && (
           <SerialPage
             command={command}
+            baudRate={baudRate}
             connected={connected}
+            connectSerial={connectSerial}
             log={log}
+            portLabel={portLabel}
             pushLog={pushLog}
             sendSettings={sendSettings}
-            setConnected={setConnected}
+            setBaudRate={setBaudRate}
           />
         )}
 
@@ -189,7 +337,7 @@ function GainPage({
   settings,
   updateNumber,
 }: {
-  sendSettings: () => void
+  sendSettings: () => Promise<void>
   setSettings: Dispatch<SetStateAction<PidSettings>>
   settings: PidSettings
   updateNumber: (key: keyof PidSettings, value: number) => void
@@ -202,7 +350,7 @@ function GainPage({
             <p className="eyebrow">Loop Gain</p>
             <h2>核心参数</h2>
           </div>
-          <button className="primary-action" onClick={sendSettings} type="button">
+          <button className="primary-action" onClick={() => void sendSettings()} type="button">
             下发
           </button>
         </div>
@@ -271,7 +419,7 @@ function TargetPage({
 }: {
   command: string
   outputSpan: number
-  sendSettings: () => void
+  sendSettings: () => Promise<void>
   settings: PidSettings
   updateNumber: (key: keyof PidSettings, value: number) => void
 }) {
@@ -283,7 +431,7 @@ function TargetPage({
             <p className="eyebrow">Target</p>
             <h2>目标与输出</h2>
           </div>
-          <button className="primary-action" onClick={sendSettings} type="button">
+          <button className="primary-action" onClick={() => void sendSettings()} type="button">
             下发
           </button>
         </div>
@@ -413,27 +561,26 @@ function MonitorPage({
 }
 
 function SerialPage({
+  baudRate,
   command,
   connected,
+  connectSerial,
   log,
+  portLabel,
   pushLog,
   sendSettings,
-  setConnected,
+  setBaudRate,
 }: {
+  baudRate: number
   command: string
   connected: boolean
+  connectSerial: () => Promise<void>
   log: string[]
+  portLabel: string
   pushLog: (line: string) => void
-  sendSettings: () => void
-  setConnected: Dispatch<SetStateAction<boolean>>
+  sendSettings: () => Promise<void>
+  setBaudRate: Dispatch<SetStateAction<number>>
 }) {
-  const toggleConnection = () => {
-    setConnected((current) => {
-      pushLog(current ? '串口已断开' : '串口已连接 /dev/ttyUSB0 @ 115200')
-      return !current
-    })
-  }
-
   return (
     <div className="page-stack serial-page">
       <section className="panel connection-panel">
@@ -442,25 +589,32 @@ function SerialPage({
             <p className="eyebrow">Connection</p>
             <h2>串口通讯</h2>
           </div>
-          <button className="primary-action" onClick={toggleConnection} type="button">
+          <button className="primary-action" onClick={() => void connectSerial()} type="button">
             {connected ? '断开' : '连接'}
           </button>
         </div>
         <div className="serial-fields">
           <label>
             端口
-            <input defaultValue="/dev/ttyUSB0" />
+            <input readOnly value={portLabel} />
           </label>
           <label>
             波特率
-            <input defaultValue="115200" inputMode="numeric" />
+            <input
+              disabled={connected}
+              inputMode="numeric"
+              min="1"
+              onChange={(event) => setBaudRate(Number(event.target.value) || 115200)}
+              type="number"
+              value={baudRate}
+            />
           </label>
           <label>
-            超时
-            <input defaultValue="0.1s" />
+            帧结束
+            <input readOnly value="LF" />
           </label>
         </div>
-        <button className="secondary-action" onClick={sendSettings} type="button">
+        <button className="secondary-action" onClick={() => void sendSettings()} type="button">
           发送当前参数
         </button>
       </section>
