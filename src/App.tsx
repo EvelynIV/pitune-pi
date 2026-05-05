@@ -59,16 +59,24 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function formatCommand(settings: PidSettings) {
-  return [
-    `KP=${settings.kp.toFixed(2)}`,
-    `KI=${settings.ki.toFixed(2)}`,
-    `KD=${settings.kd.toFixed(2)}`,
-    `SP=${settings.setpoint.toFixed(1)}`,
-    `OUT=${settings.outputMin.toFixed(0)}:${settings.outputMax.toFixed(0)}`,
-    `TS=${settings.sampleTime}`,
-    `MODE=${settings.mode.toUpperCase()}`,
-    `DIR=${settings.direction.toUpperCase()}`,
-  ].join(';')
+  return JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'pid.set',
+    params: {
+      kp: Number(settings.kp.toFixed(2)),
+      ki: Number(settings.ki.toFixed(2)),
+      kd: Number(settings.kd.toFixed(2)),
+      setpoint: Number(settings.setpoint.toFixed(1)),
+      output: {
+        min: Math.round(settings.outputMin),
+        max: Math.round(settings.outputMax),
+      },
+      sampleTime: settings.sampleTime,
+      mode: settings.mode.toLowerCase(),
+      direction: settings.direction.toLowerCase(),
+    },
+    id: 1,
+  })
 }
 
 function buildPath(values: number[], width: number, height: number) {
