@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 import './App.css'
 
@@ -22,29 +22,6 @@ type TelemetryPoint = {
   time: string
   pv: number
   output: number
-}
-
-type SerialPortInfo = {
-  usbProductId?: number
-  usbVendorId?: number
-}
-
-type SerialPort = {
-  close: () => Promise<void>
-  getInfo?: () => SerialPortInfo
-  open: (options: { baudRate: number }) => Promise<void>
-  readable: ReadableStream<Uint8Array> | null
-  writable: WritableStream<Uint8Array> | null
-}
-
-type SerialApi = {
-  requestPort: () => Promise<SerialPort>
-}
-
-declare global {
-  interface Navigator {
-    serial?: SerialApi
-  }
 }
 
 const initialSettings: PidSettings = {
@@ -94,18 +71,6 @@ function formatCommand(settings: PidSettings) {
   ].join(';')
 }
 
-function formatSerialPort(port: SerialPort) {
-  const info = port.getInfo?.()
-
-  if (!info?.usbVendorId && !info?.usbProductId) {
-    return '已授权串口'
-  }
-
-  const vendor = info.usbVendorId?.toString(16).padStart(4, '0') ?? '----'
-  const product = info.usbProductId?.toString(16).padStart(4, '0') ?? '----'
-  return `USB ${vendor}:${product}`
-}
-
 function buildPath(values: number[], width: number, height: number) {
   const max = 100
   const min = 0
@@ -121,16 +86,13 @@ function buildPath(values: number[], width: number, height: number) {
 function App() {
   const [activePage, setActivePage] = useState<PageId>('gain')
   const [baudRate, setBaudRate] = useState(115200)
+  const [portPath, setPortPath] = useState('/dev/ttyUSB0')
   const [settings, setSettings] = useState<PidSettings>(initialSettings)
   const [connected, setConnected] = useState(false)
-  const [portLabel, setPortLabel] = useState('未选择')
   const [log, setLog] = useState<string[]>([
     '系统就绪，等待串口连接',
     `预览命令 ${formatCommand(initialSettings)}`,
   ])
-  const portRef = useRef<SerialPort | null>(null)
-  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
-  const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null)
 
   const command = useMemo(() => formatCommand(settings), [settings])
   const latest = telemetry[telemetry.length - 1]
@@ -148,108 +110,62 @@ function App() {
     setLog((current) => [line, ...current].slice(0, 8))
   }
 
-  const disconnectSerial = async () => {
-    const reader = readerRef.current
-    const writer = writerRef.current
-    const port = portRef.current
-
-    readerRef.current = null
-    writerRef.current = null
-    portRef.current = null
-
-    try {
-      await reader?.cancel()
-    } catch (error) {
-      pushLog(`RX 关闭失败 ${error instanceof Error ? error.message : String(error)}`)
-    }
-
-    try {
-      writer?.releaseLock()
-      await port?.close()
-      pushLog('串口已断开')
-    } catch (error) {
-      pushLog(`断开失败 ${error instanceof Error ? error.message : String(error)}`)
-    } finally {
-      setConnected(false)
-      setPortLabel('未选择')
-    }
-  }
-
-  const startReading = async (port: SerialPort) => {
-    if (!port.readable) {
-      return
-    }
-
-    const decoder = new TextDecoder()
-    const reader = port.readable.getReader()
-    readerRef.current = reader
-
-    try {
-      while (readerRef.current === reader) {
-        const { done, value } = await reader.read()
-
-        if (done) {
-          break
-        }
-
-        if (value?.length) {
-          pushLog(`RX ${decoder.decode(value).trimEnd()}`)
-        }
-      }
-    } catch (error) {
-      if (readerRef.current === reader) {
-        pushLog(`RX 失败 ${error instanceof Error ? error.message : String(error)}`)
-      }
-    } finally {
-      if (readerRef.current === reader) {
-        readerRef.current = null
-      }
-      reader.releaseLock()
-    }
-  }
-
   const connectSerial = async () => {
     if (connected) {
-      await disconnectSerial()
-      return
-    }
-
-    if (!navigator.serial) {
-      pushLog('连接失败：当前浏览器不支持 Web Serial')
+      try {
+        await fetch('/api/serial/disconnect', { method: 'POST' })
+        setConnected(false)
+        pushLog('串口已断开')
+      } catch (error) {
+        pushLog(`断开失败 ${error instanceof Error ? error.message : String(error)}`)
+      }
       return
     }
 
     try {
-      const port = await navigator.serial.requestPort()
-      await port.open({ baudRate })
+      const response = await fetch('/api/serial/connect', {
+        body: JSON.stringify({ baudRate, path: portPath }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+      const result = await response.json() as {
+        baudRate?: number
+        error?: string
+        path?: string
+      }
 
-      if (!port.writable) {
-        await port.close()
-        pushLog('连接失败：串口不可写')
+      if (!response.ok) {
+        pushLog(`连接失败 ${result.error ?? response.statusText}`)
         return
       }
 
-      portRef.current = port
-      writerRef.current = port.writable.getWriter()
       setConnected(true)
-      setPortLabel(formatSerialPort(port))
-      pushLog(`串口已连接 ${formatSerialPort(port)} @ ${baudRate}`)
-      void startReading(port)
+      pushLog(`串口已连接 ${result.path ?? portPath} @ ${result.baudRate ?? baudRate}`)
     } catch (error) {
       pushLog(`连接失败 ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
   const sendSettings = async () => {
-    const writer = writerRef.current
-
-    if (!connected || !writer) {
+    if (!connected) {
       pushLog('发送失败：未连接串口')
       return
     }
 
     try {
-      await writer.write(new TextEncoder().encode(`${command}\n`))
+      const response = await fetch('/api/serial/send', {
+        body: JSON.stringify({ command }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      })
+      const result = await response.json() as { error?: string }
+
+      if (!response.ok) {
+        pushLog(`TX 失败 ${result.error ?? response.statusText}`)
+        setConnected(false)
+        return
+      }
+
       pushLog(`TX ${command}`)
     } catch (error) {
       pushLog(`TX 失败 ${error instanceof Error ? error.message : String(error)}`)
@@ -319,10 +235,11 @@ function App() {
             connected={connected}
             connectSerial={connectSerial}
             log={log}
-            portLabel={portLabel}
+            portPath={portPath}
             pushLog={pushLog}
             sendSettings={sendSettings}
             setBaudRate={setBaudRate}
+            setPortPath={setPortPath}
           />
         )}
 
@@ -566,20 +483,22 @@ function SerialPage({
   connected,
   connectSerial,
   log,
-  portLabel,
+  portPath,
   pushLog,
   sendSettings,
   setBaudRate,
+  setPortPath,
 }: {
   baudRate: number
   command: string
   connected: boolean
   connectSerial: () => Promise<void>
   log: string[]
-  portLabel: string
+  portPath: string
   pushLog: (line: string) => void
   sendSettings: () => Promise<void>
   setBaudRate: Dispatch<SetStateAction<number>>
+  setPortPath: Dispatch<SetStateAction<string>>
 }) {
   return (
     <div className="page-stack serial-page">
@@ -596,7 +515,11 @@ function SerialPage({
         <div className="serial-fields">
           <label>
             端口
-            <input readOnly value={portLabel} />
+            <input
+              disabled={connected}
+              onChange={(event) => setPortPath(event.target.value)}
+              value={portPath}
+            />
           </label>
           <label>
             波特率
