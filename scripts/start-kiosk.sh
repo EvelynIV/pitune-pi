@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_URL="${APP_URL:-http://127.0.0.1:5173}"
 VITE_HOST="${VITE_HOST:-127.0.0.1}"
 VITE_PORT="${VITE_PORT:-5173}"
+APP_URL="${APP_URL:-http://127.0.0.1:${VITE_PORT}}"
 WINDOW_TITLE="${WINDOW_TITLE:-PID Kiosk}"
+KIOSK_WIDTH="${KIOSK_WIDTH:-320}"
+KIOSK_HEIGHT="${KIOSK_HEIGHT:-480}"
+CHROME_PROFILE="${CHROME_PROFILE:-/tmp/pitune-chromium-profile}"
+
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 if command -v pnpm >/dev/null 2>&1; then
   PACKAGE_RUNNER=(pnpm)
@@ -49,6 +55,10 @@ fi
   --app="$APP_URL" \
   --kiosk \
   --start-fullscreen \
+  --window-size="${KIOSK_WIDTH},${KIOSK_HEIGHT}" \
+  --force-device-scale-factor=1 \
+  --user-data-dir="$CHROME_PROFILE" \
+  --disable-gpu \
   --no-first-run \
   --disable-infobars \
   --disable-session-crashed-bubble \

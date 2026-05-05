@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { CSSProperties, Dispatch, SetStateAction } from 'react'
 import './App.css'
 
-type PageId = 'tune' | 'monitor' | 'serial' | 'profiles'
+type PageId = 'gain' | 'target' | 'monitor' | 'serial' | 'profiles'
 type Direction = 'Forward' | 'Reverse'
 type Mode = 'Manual' | 'Auto'
 
@@ -43,7 +43,8 @@ const initialSettings: PidSettings = {
 }
 
 const tabs: Array<{ id: PageId; label: string; icon: string }> = [
-  { id: 'tune', label: '调参', icon: 'P' },
+  { id: 'gain', label: 'PID', icon: 'P' },
+  { id: 'target', label: '目标', icon: 'T' },
   { id: 'monitor', label: '监控', icon: 'M' },
   { id: 'serial', label: '串口', icon: 'S' },
   { id: 'profiles', label: '方案', icon: 'C' },
@@ -128,7 +129,7 @@ function buildPath(values: number[], width: number, height: number) {
 }
 
 function App() {
-  const [activePage, setActivePage] = useState<PageId>('tune')
+  const [activePage, setActivePage] = useState<PageId>('gain')
   const [settings, setSettings] = useState<PidSettings>(initialSettings)
   const [connected, setConnected] = useState(false)
   const [log, setLog] = useState<string[]>([
@@ -192,13 +193,21 @@ function App() {
       </nav>
 
       <section className="workspace">
-        {activePage === 'tune' && (
-          <TunePage
+        {activePage === 'gain' && (
+          <GainPage
             command={command}
             error={error}
-            outputSpan={outputSpan}
             sendSettings={sendSettings}
             setSettings={setSettings}
+            settings={settings}
+            updateNumber={updateNumber}
+          />
+        )}
+        {activePage === 'target' && (
+          <TargetPage
+            command={command}
+            outputSpan={outputSpan}
+            sendSettings={sendSettings}
             settings={settings}
             updateNumber={updateNumber}
           />
@@ -232,10 +241,9 @@ function App() {
   )
 }
 
-function TunePage({
+function GainPage({
   command,
   error,
-  outputSpan,
   sendSettings,
   setSettings,
   settings,
@@ -243,15 +251,14 @@ function TunePage({
 }: {
   command: string
   error: number
-  outputSpan: number
   sendSettings: () => void
   setSettings: Dispatch<SetStateAction<PidSettings>>
   settings: PidSettings
   updateNumber: (key: keyof PidSettings, value: number) => void
 }) {
   return (
-    <div className="page-grid tune-grid">
-      <section className="panel pid-panel">
+    <div className="page-stack">
+      <section className="panel">
         <div className="panel-head">
           <div>
             <p className="eyebrow">Loop Gain</p>
@@ -288,12 +295,68 @@ function TunePage({
         />
       </section>
 
+      <section className="panel compact-panel">
+        <div className="toggle-row">
+          <span>模式</span>
+          <Segmented
+            active={settings.mode}
+            options={['Auto', 'Manual']}
+            onChange={(mode) =>
+              setSettings((current) => ({ ...current, mode: mode as Mode }))
+            }
+          />
+        </div>
+        <div className="toggle-row">
+          <span>方向</span>
+          <Segmented
+            active={settings.direction}
+            options={['Forward', 'Reverse']}
+            onChange={(direction) =>
+              setSettings((current) => ({
+                ...current,
+                direction: direction as Direction,
+              }))
+            }
+          />
+        </div>
+        <div className="metric-pair">
+          <Metric label="当前误差" value={error.toFixed(1)} />
+          <Metric label="设定值" value={settings.setpoint.toFixed(1)} />
+        </div>
+      </section>
+
+      <section className="panel command-panel">
+        <p className="eyebrow">Serial Command</p>
+        <code>{command}</code>
+      </section>
+    </div>
+  )
+}
+
+function TargetPage({
+  command,
+  outputSpan,
+  sendSettings,
+  settings,
+  updateNumber,
+}: {
+  command: string
+  outputSpan: number
+  sendSettings: () => void
+  settings: PidSettings
+  updateNumber: (key: keyof PidSettings, value: number) => void
+}) {
+  return (
+    <div className="page-stack">
       <section className="panel">
         <div className="panel-head">
           <div>
             <p className="eyebrow">Target</p>
             <h2>目标与输出</h2>
           </div>
+          <button className="primary-action" onClick={sendSettings} type="button">
+            下发
+          </button>
         </div>
 
         <PidSlider
@@ -321,7 +384,7 @@ function TunePage({
           value={settings.outputMax}
         />
         <PidSlider
-          label="采样周期 ms"
+          label="周期 ms"
           max={1000}
           min={10}
           onChange={(value) => updateNumber('sampleTime', Math.round(value))}
@@ -330,38 +393,11 @@ function TunePage({
         />
       </section>
 
-      <section className="panel compact-panel">
-        <div className="toggle-row">
-          <span>模式</span>
-          <Segmented
-            active={settings.mode}
-            options={['Auto', 'Manual']}
-            onChange={(mode) =>
-              setSettings((current) => ({ ...current, mode: mode as Mode }))
-            }
-          />
-        </div>
-        <div className="toggle-row">
-          <span>方向</span>
-          <Segmented
-            active={settings.direction}
-            options={['Forward', 'Reverse']}
-            onChange={(direction) =>
-              setSettings((current) => ({
-                ...current,
-                direction: direction as Direction,
-              }))
-            }
-          />
-        </div>
-        <div className="metric-pair">
-          <Metric label="当前误差" value={error.toFixed(1)} />
-          <Metric label="输出跨度" value={outputSpan.toFixed(0)} />
-        </div>
-      </section>
-
       <section className="panel command-panel">
-        <p className="eyebrow">Serial Command</p>
+        <div className="metric-pair">
+          <Metric label="输出跨度" value={outputSpan.toFixed(0)} />
+          <Metric label="周期" value={`${settings.sampleTime}`} />
+        </div>
         <code>{command}</code>
       </section>
     </div>
@@ -390,8 +426,8 @@ function MonitorPage({
   const setpointY = 220 - (settings.setpoint / 100) * 220
 
   return (
-    <div className="page-grid monitor-grid">
-      <section className="panel chart-panel">
+    <div className="page-stack">
+      <section className="panel">
         <div className="panel-head">
           <div>
             <p className="eyebrow">Realtime</p>
@@ -410,7 +446,7 @@ function MonitorPage({
         </svg>
       </section>
 
-      <section className="metrics-stack">
+      <section className="metrics-grid">
         <Metric label="过程值 PV" value={latest.pv.toFixed(1)} />
         <Metric label="设定值 SP" value={settings.setpoint.toFixed(1)} />
         <Metric label="控制输出" value={`${latest.output.toFixed(0)}%`} />
@@ -470,7 +506,7 @@ function SerialPage({
   }
 
   return (
-    <div className="page-grid serial-grid">
+    <div className="page-stack">
       <section className="panel connection-panel">
         <div className="panel-head">
           <div>
@@ -539,7 +575,7 @@ function ProfilesPage({
   settings: PidSettings
 }) {
   return (
-    <div className="page-grid profile-grid">
+    <div className="page-stack">
       <section className="panel profile-summary">
         <p className="eyebrow">Active Profile</p>
         <h2>当前参数快照</h2>
